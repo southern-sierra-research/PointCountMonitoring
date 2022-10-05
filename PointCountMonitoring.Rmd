@@ -1,0 +1,306 @@
+---
+title: "PointCountMonitoring"
+author: "Patrick D. lorch"
+date: "2022-10-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Import data
+
+Annie worked on the 2021 TNC Caliente bird survey data file to clean up mistakes in the Species codes.  Other changes included:
+
+
+
+```{r data21}
+library(readxl)
+library(tidyr)
+library(dplyr)
+
+caliente_location_codes = data.frame(site_code = c("THO","THG","CBG","CO","CC","THR","BR"),
+                                        site_name = c("Tollhouse – Oak Savanna",
+                                                      "Tollhouse – Grassland",
+                                                      "Caliente – Buckwheat/Goldenbush Scrub",
+                                                      "Caliente – Oak Woodland",
+                                                      "Caliente Creek - Riparian",
+                                                      "Walker Basin Creek (Tollhouse) – Riparian",
+                                                      "Beard Ranch - Riparian"),
+                                        id = 1:7)
+surveyor = data.frame(initials = c("MW", "EJ", "KS", "NJ", "RV", "MP", "SR", "RET",
+                                   "PL", "AJR", "ALM", "AJP", "BH", "SD"),
+                      name = c("Mary Whitfield",
+                               "Edwin Jacobo",
+                               "Kristie Stein",
+                               "Nidia Jaime",
+                               "Rachel Voss",
+                               "Maggie Pasanen",
+                               "Sean Rowe",
+                               "Reed Tollefson",
+                               "Patrick Lorch",
+                               "Alexander Robinson",
+                               "Annie Meyer",
+                               "Aidan Place",
+                               "Brian Hofstetter",
+                               "Sara Dart"),
+                      id = 1:14)
+
+# Read in Point count data
+tnc_pc_2021 <- read_excel("C:/Users/PatrickLorch/SSRS/Southern Sierra Research Station - Documents/Projects/TNC Bird Surveys - Caliente_WB/Data/2021/ALM_Mod_TNC Point Count Data 2021_110521.xlsx",sheet = "Sheet3", col_types = c("numeric","text", "text", "date", "text", "text","numeric", "numeric", "numeric","numeric", "numeric", "numeric","numeric", "numeric", "numeric","text", "text", "text", "text", "text","text", "text", "numeric", "numeric","text", "text", "text", "text"))
+
+# Sanity check
+table(tnc_pc_2021$Species, tnc_pc_2021$Location_Code)
+# Check for any unusual codes like UEFL
+which(tnc_pc_2021_all$Species == "UEFL")
+# Check distance
+hist(tnc_pc_2021$Distance)
+
+# Get data for birds not at points
+tnc_88_2021 <- read_excel("C:/Users/PatrickLorch/SSRS/Southern Sierra Research Station - Documents/Projects/TNC Bird Surveys - Caliente_WB/Data/2021/ALM_Mod_TNC Point Count Data 2021_110521.xlsx",sheet = "88 Species",
+                          col_types = c("date","text", "text", "text", "text", 
+                                        "text", "text", "text", "numeric", 
+                                        "text", "numeric", "numeric", "text",
+                                        "text"))
+# Rename column from this table to allow habitat assignment
+names(tnc_88_2021)[2] = "Location_Code"
+# Combine for some analyses but add a column that tracks where detected
+tnc_combined_2021 = tnc_pc_2021 %>%
+  bind_rows(tnc_88_2021, .id = "point_vs_88")
+
+# Mark unknowns
+tnc_combined_2021 = tnc_combined_2021 %>%
+  mutate(known = substr(Species,1,1) != "U")
+
+# Add habitat type variable
+
+tnc_combined_2021= tnc_combined_2021 %>%
+  mutate(Habitat = case_when(Location_Code == "CBG" ~ "Buckwheat/Goldenbush Scrub",
+                             Location_Code == "CO" ~ "Oak Woodland",
+                             Location_Code == "THG" ~ "Grassland",
+                             Location_Code == "THO" ~ "Oak Savannah",
+                             TRUE ~ "Riparian"))
+tnc_combined_2021 = tnc_combined_2021 %>%
+  mutate(Season = case_when(Visit == "3" ~ "Summer",
+                            Visit == 1 | Visit == 2 ~ "Spring",
+                            TRUE ~ "Fall"))
+           
+
+# summaries 
+sp_by_hab_21 = tnc_combined_2021 %>%
+  filter(known == T) %>%
+  group_by(Species, Habitat) %>%
+  count() %>%
+  spread(Habitat, n)
+write.csv(sp_by_hab_21, "sp_by_hab.csv")
+
+sp_counts_by_hab_21 = colSums(sp_by_hab_21 != 0, na.rm = T)
+write.csv(as.data.frame(sp_counts_by_hab_21), "sp_counts_by_hab21.csv")
+
+
+sp_by_hab_season = tnc_combined_2021 %>%
+  filter(known == T) %>%
+  group_by(Species, Habitat, Season) %>%
+  # distinct(Species) %>%
+  count() %>%
+  group_by(Habitat, Season) %>%
+  count() %>%
+  spread(Habitat, n)
+write.csv(sp_by_hab_season, "sp_by_hab_season.csv")
+
+sp_by_hab_season_wo88 = tnc_combined_2021 %>%
+  filter(known == T, point_vs_88 == 1) %>%
+  group_by(Species, Habitat, Season) %>%
+  # distinct(Species) %>%
+  count() %>%
+  group_by(Habitat, Season) %>%
+  count() %>%
+  spread(Habitat, n)
+write.csv(sp_by_hab_season_wo88, "sp_by_hab_season_wo88.csv")
+
+caliente_observer_2021 = tnc_pc_2021 %>%
+  select("Date2", "Location_Code", "Observer") %>%
+  unique() %>%
+  left_join(caliente_location_codes, by = c("Location_Code" = "site_code")) %>%
+  left_join(surveyor, by = c("Observer" = "initials")) %>%
+  select(Date = Date2, Site = site_name, Surveyor = name)
+write.csv(caliente_observer_2021, "caliente_observer_2021.csv")
+
+bird_sp = read.csv("birds_202210041059.csv")
+bird_sp = bird_sp %>%
+  select(spec, commonname, sciname)
+
+sp_list_points = tnc_combined_2021 %>%
+  filter(known == T, point_vs_88 == 1) %>%
+  select(Species, Season)%>%
+  distinct() %>%
+  arrange(Season, Species) %>%
+  left_join(bird_sp, by = c("Species" = "spec"))
+
+sp_list_points_by_season = sp_list_points %>%
+  mutate(count = 1) %>%
+  pivot_wider(names_from = Season, values_from = count)
+# generate totals by season if time permits
+write.csv(sp_list_points_by_season, "sp_list_points_by_season.csv")
+
+sp_list_88 = tnc_combined_2021 %>%
+  filter(known == T, point_vs_88 == 2) %>%
+  select(Species, Season)%>%
+  distinct() %>%
+  arrange(Season, Species) %>%
+  left_join(bird_sp, by = c("Species" = "spec"))
+
+sp_list_88_by_season = sp_list_88 %>%
+  mutate(count = 1) %>%
+  pivot_wider(names_from = Season, values_from = count)
+write.csv(sp_list_88_by_season, "sp_list_88_by_season.csv")
+
+# Anti join to find unique species in 88s
+sp_list_88_21_unique = sp_list_88 %>%
+  anti_join(sp_list_points, by = "Species") %>%
+  mutate(count = 1) %>%
+  pivot_wider(names_from = Season, values_from = count)
+write.csv(sp_list_88_21_unique, "sp_list_88_21_unique.csv")
+
+
+# Not sure what to do with this
+library(mefa4)
+library(vegan)
+
+
+count2021 = Xtab(Number ~ Habitat + Species +Season, tnc_pc_2021)
+# count2021 = as.matrix(count2021)
+count2021Fall = specnumber(count2021$Fall, MARGIN = 1)
+count2021Spring = specnumber(count2021$Spring, MARGIN = 1)
+count2021Summer = specnumber(count2021$Summer, MARGIN = 1)
+
+
+```
+
+## Interim reports for 2022
+
+
+
+```{r data22}
+library(readxl)
+library(tidyr)
+library(dplyr)
+
+# Read in Point count data
+tnc_pc_2022 <- read_excel("C:/Users/PatrickLorch/SSRS/Southern Sierra Research Station - Documents/Projects/TNC Bird Surveys - Caliente_WB/Data/2022/TNC22_Sasha_wbook.xlsx", 
+sheet = "21-22w88", col_types = c("numeric", 
+    "text", "text", "date", "text", "text", 
+    "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", 
+    "numeric", "numeric", "numeric", 
+    "text", "numeric", "text", "text", 
+    "text", "text", "text", "text", "numeric", 
+    "numeric", "text", "numeric", "text", 
+    "text", "text"))
+
+# Sanity check
+table(tnc_pc_2022$Species, tnc_pc_2022$Location_Code)
+
+# Mark unknowns
+tnc_combined_2022 = tnc_pc_2022 %>%
+  mutate(known = substr(Species,1,1) != "U")
+
+# Get just 2022 data
+tnc_combined_2022 = tnc_combined_2022 %>%
+  filter(Date > "2021-12-31")
+
+# Add habitat type variable
+
+tnc_combined_2022= tnc_combined_2022 %>%
+  mutate(Habitat = case_when(Location_Code == "CBG" ~ "Buckwheat/Goldenbush Scrub",
+                             Location_Code == "CO" ~ "Oak Woodland",
+                             Location_Code == "THG" ~ "Grassland",
+                             Location_Code == "THO" ~ "Oak Savannah",
+                             TRUE ~ "Riparian"))
+tnc_combined_2022 = tnc_combined_2022 %>%
+  mutate(Season = case_when(Visit == "3" ~ "Summer",
+                            Visit == 1 | Visit == 2 ~ "Spring",
+                            TRUE ~ "Fall"),
+         point_vs_88 = case_when(Point_Name == "88" ~ 2,
+                                 TRUE ~ 1)
+         )
+           
+
+# summaries 
+sp_by_hab_22 = tnc_combined_2022 %>%
+  filter(known == T) %>%
+  group_by(Species, Habitat) %>%
+  count() %>%
+  spread(Habitat, n)
+write.csv(sp_by_hab_22, "sp_by_hab_22.csv")
+
+sp_counts_by_hab_22 = colSums(sp_by_hab_22 != 0, na.rm = T)
+write.csv(as.data.frame(sp_counts_by_hab_22), "sp_counts_by_hab_22.csv")
+
+sp_by_hab_season_22 = tnc_combined_2022 %>%
+  filter(known == T) %>%
+  group_by(Species, Habitat, Season) %>%
+  # distinct(Species) %>%
+  count() %>%
+  group_by(Habitat, Season) %>%
+  count() %>%
+  spread(Habitat, n)
+write.csv(sp_by_hab_season_22, "sp_by_hab_season_22.csv")
+
+sp_by_hab_season_wo88_22 = tnc_combined_2022 %>%
+  filter(known == T, point_vs_88 == 1) %>%
+  group_by(Species, Habitat, Season) %>%
+  # distinct(Species) %>%
+  count() %>%
+  group_by(Habitat, Season) %>%
+  count() %>%
+  spread(Habitat, n)
+write.csv(sp_by_hab_season_wo88_22, "sp_by_hab_season_wo88_22.csv")
+
+caliente_observer_2022 = tnc_combined_2022 %>%
+  select("Date", "Location_Code", "Observer") %>%
+  unique() %>%
+  left_join(caliente_location_codes, by = c("Location_Code" = "site_code")) %>%
+  left_join(surveyor, by = c("Observer" = "initials")) %>%
+  select(Date = Date, Site = site_name, Surveyor = name)
+write.csv(caliente_observer_2022, "caliente_observer_2022.csv")
+
+bird_sp = read.csv("birds_202210041059.csv")
+bird_sp = bird_sp %>%
+  select(spec, commonname, sciname)
+
+sp_list_points_22 = tnc_combined_2022 %>%
+  filter(known == T, point_vs_88 == 1) %>%
+  select(Species, Season)%>%
+  distinct() %>%
+  arrange(Season, Species) %>%
+  left_join(bird_sp, by = c("Species" = "spec"))
+
+sp_list_points_22_by_season = sp_list_points_22 %>%
+  mutate(count = 1) %>%
+  pivot_wider(names_from = Season, values_from = count)
+# generate totals by season if time permits
+write.csv(sp_list_points_22_by_season, "sp_list_points_22_by_season.csv")
+
+sp_list_88_22 = tnc_combined_2022 %>%
+  filter(known == T, point_vs_88 == 2) %>%
+  select(Species, Season)%>%
+  distinct() %>%
+  arrange(Season, Species) %>%
+  left_join(bird_sp, by = c("Species" = "spec"))
+
+sp_list_88_22_by_season = sp_list_88_22 %>%
+  mutate(count = 1) %>%
+  pivot_wider(names_from = Season, values_from = count)
+write.csv(sp_list_88_22_by_season, "sp_list_88_22_by_season.csv")
+
+# Anti join to find unique species in 88s
+sp_list_88_22_unique = sp_list_88_22 %>%
+  anti_join(sp_list_points_22, by = "Species") %>%
+  mutate(count = 1) %>%
+  pivot_wider(names_from = Season, values_from = count)
+write.csv(sp_list_88_21_unique, "sp_list_88_21_unique.csv")
+
+```
+
