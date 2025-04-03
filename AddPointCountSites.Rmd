@@ -26,18 +26,21 @@ https://earth-info.nga.mil/index.php?dir=coordsys&action=mgrs-1km-polyline-dload
 
 UTM 11S covers our part of CA.
 
-That is stored in SharePoint at "~Southern Sierra Research Station - Documents\Projects\TNC Randall Preserve Projects\Maps & GIS\mgrs_11s_100m" and ""~Southern Sierra Research Station - Documents\Projects\TNC Randall Preserve Projects\Maps & GIS\MGRS_1km_11S_unprojected"
+That is stored in SharePoint at "~Southern Sierra Research Station - Documents\Projects\TNC Randall Preserve Projects\Maps & GIS\mgrs_11s_100m" and 
+""~Southern Sierra Research Station - Documents\Projects\TNC Randall Preserve Projects\Maps & GIS\MGRS_1km_11S_unprojected"
 
 To make the leaflet map work currently, 
 
-* you run it for find the UTM id for the 1km block including your sites. 
-  * For Randal this is LV and LU
-* Then you hover over the cells that overlap your sites
-  * Make a list of their MGRS numbers
-* Use these to subset down to just the ones you need and make a polygon
-* Now you can create a 250m grid within just that polygon
+* you run it after you find the UTM id for the 1km block(s) including your sites. 
+  * For Randall ranches this is LV and LU
+* In the leaflet map, you can hover over the cells that overlap your sites and see the MGRS ID for the cell
 
-11SLV3713, where last four are CCRR where CC is column ID and RR is Row id
+**Note:** MGRS desciption: 11SLV3713, where first 3 are UTM grid ID, middle are MGRS 1km grid ID, and last four are CCRR where CC is column ID (increasing left to right) and RR is Row id (increasing bottom to top)
+
+The first Leaflet map is just for figuring out what MGRS IDs you need to include.
+
+The plots are generally just to help check you are getting what you expect.
+
 
 ```{r mgrs}
 library(dplyr)
@@ -48,35 +51,35 @@ library(geojsonsf)
 library(plotrix)
 library(htmlwidgets)
 
+# Things you need to set for each run
+ncells = 4 # number of cells to divide MGRS cells by for GRTS sampling
 MGRS_1km_11S_unprojected = 
   st_read(dsn = file.path("../..",
                     "Maps & GIS",
                     "MGRS_1km_11S_unprojected"),
           layer = "MGRS_1km_11S_unprojected")
-# Subset to one or more km^2 block for easier ploting
+# Subset to one or more km^2 block for easier plotting
 MGRS_1km_11S_subset = 
   MGRS_1km_11S_unprojected %>%
   filter(kmSQ_ID %in% c("LV", "LU"))
-         # substr(MGRS, 8, 9) %in% c("71"))
 center = st_coordinates(st_centroid(summarize(MGRS_1km_11S_subset)))
 zoom = 10
 
-# centers = st_centroid(MGRS_1km_11S_subset)
-# centers$name = MGRS_1km_11S_subset$MGRS
-
-RandallRanches = 
+# Polygons of interest for narrowing down GRTS point sample frame
+focal_polygons = 
   st_read(dsn = file.path("../..",
                           "Maps & GIS",
                           "2023 (complete GIS files)",
                           "Randall Pasture Boundaries 2023",
                           "Randall Pasture Boundaries 2023"),
           layer = "Randall_Pastures_2023")
-
-RandallRanches = st_transform(RandallRanches, st_crs(MGRS_1km_11S_subset))
+# get in same coordinate system
+focal_polygons = st_transform(focal_polygons, st_crs(MGRS_1km_11S_subset))
+focal_poly_name = "B&C West"
 
 pal <- colorFactor(
   palette = "magma",
-  domain = RandallRanches$Name,
+  domain = focal_polygons$Name,
   na.color = "#737373")
 
 m = leaflet() %>%
@@ -90,12 +93,7 @@ m = leaflet() %>%
               opacity=10.8,
               label = ~MGRS,
               group = "MGRS") %>%
-  # addLabelOnlyMarkers(data = centers,
-  #                   label = ~name,
-  #                   labelOptions = labelOptions( # noHide = TRUE,
-  #                                           direction = 'top',
-  #                                           textOnly = TRUE)) %>%
-  addPolygons(data = RandallRanches,
+  addPolygons(data = focal_polygons,
               fill = F,
               color= ~pal(Name), 
               opacity=10.8,
@@ -110,53 +108,77 @@ m = leaflet() %>%
 
 m
 saveWidget(m, file = "MGRSgridcellpicker.html")
-
-# Subset to one or more km^2 block for easier plotting
-MGRS_1km_11S_subset2 = 
-  MGRS_1km_11S_subset %>%
-  filter(kmSQ_ID %in% c("LV"),
-         substr(MGRS, 8, 9) %in% 13:19,
-         substr(MGRS, 6, 7) %in% 35:43)
-center2 = st_coordinates(st_centroid(summarize(MGRS_1km_11S_subset2)))
-zoom2 = 12
-BCWest = RandallRanches %>% filter(Name == "B&C West")
-MGRS_1km_11S_intersect = st_intersection(MGRS_1km_11S_subset, BCWest)
-
-m2 = leaflet() %>%
-  addTiles(group = "OSM (default)") %>%
-  addProviderTiles('Esri.WorldImagery', 
-                   group = "Esri World Imagery") %>%
-  setView(center2[1], center2[2], zoom2) %>%
-  addPolygons(data = MGRS_1km_11S_subset2,
-              fill = F,
-              color="black", 
-              opacity=10.8,
-              label = ~MGRS,
-              group = "MGRS") %>%
-  addPolygons(data = RandallRanches,
-              fill = F,
-              color= ~pal(Name), 
-              opacity=10.8,
-              label = ~Name,
-              group = "Ranch") %>%
-  addLayersControl(
-    baseGroups = c("Esri World Imagery", "OSM (default)"),
-    overlayGroups = c("MGRS", "Ranch"),
-    position = "bottomright",
-    options = layersControlOptions(collapsed = TRUE))
-
-
-m2
-saveWidget(m, file = "MGRSgridcellViewer.html")
-
-# Another approach using st_intersection
-BCWest = RandallRanches %>% filter(Name == "B&C West")
-st_intersection(MGRS_1km_11S_subset2, BCWest)
 ```
+
+### Vector grid 
+
+Develop a grid to put a certain density of points within each 1 km MGRS cell and eliminate points near and outside the boundary.
+
+Cannot use meters with negative buffers in sf if use_s2 is True so using estimating fractional degrees. This number can be changed if you want to remove more boundary points based on plots.
+
+```{r vectorgrid}
+neg_buffer_deg = (-0.001)
+
+# Narrow down area grid is built for using st_intersection
+focal_poly = focal_polygons %>% filter(Name == focal_poly_name)
+MGRS_1km_11S_intersect = st_intersection(MGRS_1km_11S_subset, focal_poly)
+# Get list of MGRS blocks of interest
+MGRS_1km_11S_intersect_ids = unique(MGRS_1km_11S_intersect_4269$MGRS)
+# Subset the MGRS grid
+MGRS_1km_11S_subset3 = MGRS_1km_11S_subset %>%
+  filter(MGRS %in% MGRS_1km_11S_intersect_ids)
+plot(MGRS_1km_11S_intersect["MGRS"], add =T)
+
+plot(st_as_sfc(st_bbox(MGRS_1km_11S_subset3)), axes = T)
+plot(MGRS_1km_11S_subset3["MGRS"], axes = T, add = T)
+
+MGRS_1km_11S_subset3_4269 = st_transform(MGRS_1km_11S_subset3, crs = 4269)
+
+# Start here to redo debugging plot
+
+plot(st_as_sfc(st_bbox(MGRS_1km_11S_subset3_4269)), axes = T)
+plot(MGRS_1km_11S_subset3_4269["MGRS"], add = T)
+# Find width and length of MGRS grid cells
+MGRS_height = 
+  diff(as.numeric(range(substr(MGRS_1km_11S_subset3_4269$MGRS, 8, 9)))) + 1
+MGRS_width = 
+  diff(as.numeric(range(substr(MGRS_1km_11S_subset3_4269$MGRS, 6, 7)))) + 1
+
+MGRS_1km_11S_subset3_grid = 
+  st_make_grid(MGRS_1km_11S_subset3_4269, 
+               # cellsize = ncells *c(MGRS_height, MGRS_width),
+               n = ncells *c(MGRS_height, MGRS_width),
+               what = "centers")
+plot(MGRS_1km_11S_subset3_grid, add = T)
+
+# Remove points outside of focal poly and within 100m inside boundary
+focal_poly_4269 = st_transform(focal_poly, 4269)
+plot(focal_poly_4269, add = T, col = NA, lwd = 2)
+MGRS_1km_11S_subset4_grid = 
+  st_intersection(x = MGRS_1km_11S_subset3_grid,
+                  y = focal_poly_4269)
+
+plot(MGRS_1km_11S_subset4_grid, pch = 19, add = T)
+MGRS_1km_11S_subset4_grid = 
+  st_intersection(x = MGRS_1km_11S_subset3_grid,
+                  y = st_buffer(focal_poly_4269, 
+                            dist = neg_buffer_deg))
+plot(st_buffer(focal_poly_4269,
+               dist = neg_buffer_deg), 
+     col = NA,
+     add = T)
+plot(MGRS_1km_11S_subset4_grid, pch = 19, col = "red", add = T)
+
+```
+
+### Grts drop
+
+
 
 ```{r grts}
 library(spsurvey)
 library(sf)
+
+
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
