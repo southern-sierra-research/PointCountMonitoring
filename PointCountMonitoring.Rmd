@@ -22,7 +22,7 @@ library(lubridate)
 
 ### 2021
 
-Annie worked on the 2021 TNC Caliente bird survey data file to clean up mistakes in the Species codes.  Other changes includedThose done in R below.
+Annie worked on the 2021 TNC Caliente bird survey data file to clean up mistakes in the Species codes.  Other changes included those done in R below.
 
 ```{r data21}
 
@@ -895,6 +895,8 @@ We want to compare habitat types in a dendrogram.
 Following the vegan community vignette:
 https://www.mooreecology.com/uploads/2/4/2/1/24213970/vegantutor.pdf
 
+Color mapping by vegan functions is inconsistent.  For Ordiplots look at the section marked # *** Currently using this one ***
+
 ```{r community2123}
 #install.packages("vegan")
 library(MASS)
@@ -941,18 +943,19 @@ habitat_21_23 = as.data.frame(transects_21_23) %>%
 col_21_23 = habitat_21_23 %>%
   mutate(color = case_when(habitat_21_23 == "Buckwheat/Goldenbush Scrub" ~ "orange",
                            habitat_21_23 == "Oak Woodland" ~ "grey",
-                           habitat_21_23 == "Grassland" ~ "yellow",
+                           habitat_21_23 == "Grassland" ~ "yellow3",
                            habitat_21_23 == "Oak Savannah" ~ "blue",
                            TRUE ~ "green")) %>%
     dplyr::select(color)
 
+# Diversity
 tnc_21_23_shannon = diversity(site_species_21_23)
 tnc_21_23_simpson = diversity(site_species_21_23, index = "simpson")
 tnc_21_23_diversity_df = data.frame(points_sim = names(tnc_21_23_simpson),
                                   tnc_21_23_simpson,
                                   points_shan = names(tnc_21_23_shannon),
                                   tnc_21_23_shannon)
-transects_div_21_23 = sapply(strsplit(tnc_21_23_diversity_df$points_sim,"-"), `[`, 1)
+transects_div_21_23_rel = sapply(strsplit(tnc_21_23_diversity_df$points_sim,"-"), `[`, 1)
 habitat_div_21_23 = as.data.frame(transects_div_21_23) %>%
   mutate(Habitat = case_when(transects_div_21_23 == "CBG" ~ "Buckwheat/Goldenbush Scrub",
                              transects_div_21_23 == "CO" ~ "Oak Woodland",
@@ -962,7 +965,7 @@ habitat_div_21_23 = as.data.frame(transects_div_21_23) %>%
   dplyr::select(Habitat)
 tnc_21_23_diversity_df = data.frame(tnc_21_23_diversity_df, Habitat = habitat_div_21_23)
 
-# Simpson
+### Simpson
 tnc_21_23_diversity_simpson.aov = aov(formula = log(tnc_21_23_simpson + 0.001) ~ Habitat, data = tnc_21_23_diversity_df)
 
 sink("tnc_21_23_diversity_simpson.txt")
@@ -972,7 +975,7 @@ sink()
 
 boxplot(formula = log(tnc_21_23_simpson + 0.001) ~ Habitat, data = tnc_21_23_diversity_df)
 
-# Shannon
+### Shannon
 tnc_21_23_diversity_shannon.aov = aov(formula = tnc_21_23_shannon ~ Habitat, data = tnc_21_23_diversity_df)
 
 sink("tnc_21_23_diversity_shannon.txt")
@@ -984,19 +987,24 @@ boxplot(formula = tnc_21_23_shannon ~ Habitat, data = tnc_21_23_diversity_df)
 
 
 # Calculate relative abundance by site
+# Not necessary for use in calculations, since metaMDS does standardization
+# of site by species matrix
 tnc_21_23_relabund = decostand(site_species_21_23, method = "total")
 apply(tnc_21_23_relabund, 1, sum)
 
-
+# Distance
+## Distance with counts
 tnc_21_23.dis = vegdist(site_species_21_23)
 tnc_21_23.mds0 = isoMDS(tnc_21_23.dis)
 stressplot(tnc_21_23.mds0, tnc_21_23.dis)
-# An Ordination plot
+## An Ordination plot
 p1 = ordiplot(tnc_21_23.mds0, type = "points")
 row.names(p1$sites) = sites_21_23
 text(p1, "sites", col = "red")
 
-# Ordination using NMDS and random starting points
+# Ordination
+## Counts
+### Ordination using NMDS and random starting points
 tnc_21_23.mds = metaMDS(site_species_21_23, trace = F)
 tnc_21_23.mds
 row.names(tnc_21_23.mds$points) = sites_21_23
@@ -1008,6 +1016,7 @@ p1 = plot(tnc_21_23.mds, disp = "sp")
 plot(hab_fit_2021, p.max = 0.1)
 
 # Some Ordination plots
+## Counts
 orplt = ordiplot(tnc_21_23.mds, type = "n", 
                  ylim = c(-1, 1), xlim = c(-2, 2.5))
 ordiellipse_tnc2123 = ordiellipse(tnc_21_23.mds, groups = habitat_21_23$Habitat, draw="polygon",
@@ -1027,18 +1036,39 @@ orditorp(tnc_21_23.mds, display="species", col="red", air=0.01)
 orditorp(tnc_21_23.mds, display="sites", col = col_21_23$color,
    air=0.01,cex=1.25)
 
+# *** Currently using this one ***
+
+# Trouble making point color match hull color and match what is in reports
+# This shows the color scheme we want
+data.frame(sites_21_23, habitat_21_23$Habitat, col_21_23$color)
+# Ordihull color is the problem. 1st 2 options don't work.
+# Ordihull sorts groups this way
+names(table(habitat_21_23$Habitat))
+# So I think we would need c("orange", "yellow", "blue", "grey", "green")
+# Just for Ordihull
+
 orplt2 = ordiplot(tnc_21_23.mds, type = "n", 
-                 ylim = c(-2, 2), xlim = c(-3, 3))
-points(tnc_21_23.mds, 
-       col = c("yellow", "green", "brown", "grey", "blue"), 
-       pch = as.numeric(as.factor(habitat_21_23$Habitat)))
+                 ylim = c(-2, 2), xlim = c(-2.5, 3))
 ordihull(tnc_21_23.mds, groups = habitat_21_23$Habitat, draw="polygon",
-col = c("yellow", "green", "brown", "grey", "blue"), label=F, alpha = 127)
+         # col = unique(col_21_23$color), label=F, alpha = 127)
+         # col = col_21_23$color, label=F, alpha = 127)
+         col = c("orange", "yellow", "blue", "grey", "green"),
+               label=F, alpha = 127)
+# degug code: label Sites to check colors match
+# orditorp(tnc_21_23.mds, display="sites", col = col_21_23$color,
+#          air=1, cex=1, pch = 15)
+#points. Not both.
+points(tnc_21_23.mds,
+       # col = col_21_23$color,
+       col = "red",
+       # pch = 15)
+       pch = as.numeric(as.factor(habitat_21_23$Habitat)))
 legend("bottomright", 
        legend = unique(habitat_21_23$Habitat), 
+       # This is the color scheme we want
+#             Riparian B/G scrub Oak wood Grassland Oak savannah
        col = c("green", "orange", "grey", "yellow", "blue"),
        pch = 15, cex = 1)
-
 
 tnc_21_23.clus = hclust(tnc_21_23.dis, "single")
 plot(tnc_21_23.clus, labels = sites_21_23)
@@ -1058,7 +1088,7 @@ cor(tnc_21_23.dis, cophenetic(tnc_21_23.clua))
 # Following my methods from CMP point count talk
 tnc_21_23.euc = vegdist(site_species_21_23, method = "euc")
 tnc_21_23.ward = hclust(tnc_21_23.euc, method = "ward.D")
-plot(tnc_21_23.ward, labels = sites_21_23)
+plot(tnc_21_23.ward, labels = sites_21_23, cex = 0.5)
 cor(tnc_21_23.euc, cophenetic(tnc_21_23.ward))
 
 indval_21_23 = multipatt(site_species_21_23, habitat_21_23$Habitat, control = how(nperm = 999))
@@ -1066,6 +1096,8 @@ sink(file = "indval_21_23_sum.txt")
 summary(indval_21_23) 
 sink()
 
+# *** This section has not been redone because grassland sample sizes drop 
+# considerably
 ## By season
 # Needed to eliminate THG-09 - 18 for spring 2021 and possibly 2022
 
@@ -1262,6 +1294,351 @@ ggplot(data = rare_tidy_summer_21_23, aes(Sample, Species,
        x = "Sample Size") +
   facet_wrap(~Habitat, nrow = 2)
 
+write.csv(rare_tidy_21_23, 
+          "rare_tidy_21_23.csv", 
+          row.names = F)
+
+```
+
+
+### 2024
+
+Most changes were done by Sasha in spreadsheets.
+
+```{r data24}
+
+# Read in Point count data
+TNC_Point_Count_Data_2024 <- read_excel("C:/Users/PatrickLorch/SSRS/Southern Sierra Research Station - Documents/Projects/TNC Randall Preserve Projects/Data/2024/TNC_PointCountData_2024_AJR_forProgressReport.xlsx",
+        sheet = "Point Count Data", 
+        col_types = c("numeric",
+                      "text", "text", "text", "date", "numeric",
+                      "text", "numeric", "numeric", "numeric",
+                      "numeric", "numeric", "numeric",
+                      "numeric", "numeric", "text", "numeric",
+                      "text", "text", "text", "text", "text",
+                      "text", "text", "numeric", "numeric",
+                      "text", "text", "text", "text"))
+View(TNC_Point_Count_Data_2024)
+
+names(TNC_Point_Count_Data_2024)
+names(TNC_Point_Count_Data_2024)[4] = "Location_Code"
+
+# Figure out what `"entered 100m radius" row?` column was used for
+# No idea. Leaving it in despite the crazy name
+unique(TNC_Point_Count_Data_2024$`"entered 100m radius" row?`)
+which(TNC_Point_Count_Data_2024$`"entered 100m radius" row?` == "YES")
+which(TNC_Point_Count_Data_2024$`"entered 100m radius" row?` == "on beard ranch")
+
+# shorter name
+tnc_pc_2024 = TNC_Point_Count_Data_2024
+
+# Sanity check
+table(tnc_pc_2024$Species, tnc_pc_2024$Location_Code)
+
+# Set dummy variable for No birds at a point (NOBI)
+tnc_pc_2024 = tnc_pc_2024 %>%
+  mutate(nobi = ifelse(Species == "NOBI", 1, 0))
+
+# Mark unknowns
+## Change older Unknown Empidonax to new code
+which(tnc_pc_2024$Species == "UEFL")
+which(tnc_pc_2024$Species == "UNEM")
+# None need changing this year
+# tnc_pc_2024 = tnc_pc_2024 %>%
+#   mutate(Species = ifelse(Species == "UEFL", "UNEM", Species))
+
+tnc_pc_2024 = tnc_pc_2024 %>%
+  mutate(known = substr(Species,1,2) != "UN")
+
+# Habitat type variable was added manually?
+table(tnc_pc_2024$Habitat, tnc_pc_2024$Location_Code)
+
+unique(tnc_pc_2024$Visit) # Only 1, 2, 4
+unique(tnc_pc_2024$"Point#")
+# Sasha had copied 88 into minute for many of these. Fixed spreadsheet and reimported
+# which(is.na(tnc_pc_2024$"Point#"))
+# which(tnc_pc_2024$Minute == "88")
+# which(tnc_pc_2024$"Point#" == "88")
+
+tnc_pc_2024 = tnc_pc_2024 %>%
+  mutate(Season = case_when(Visit == "3" ~ "Summer",
+                            Visit == 1 | Visit == 2 ~ "Spring",
+                            TRUE ~ "Fall"),
+         point_vs_88 = case_when(tnc_pc_2024$"Point#" == "88" ~ 2,
+                                 TRUE ~ 1)
+         )
+table(tnc_pc_2024$Season, tnc_pc_2024$Visit)
+
+# Replace blank Number with 1
+which(is.na(tnc_pc_2024$Number))
+# Not needed this year
+# tnc_pc_2024 = tnc_pc_2024 %>%
+#   mutate(Number = ifelse(is.na(Number), 1, Number))
+
+# To skip the above steps, we can import this file.
+write.csv(tnc_pc_2024, "tnc_pc_2024.csv")           
+
+# summaries 
+sp_by_hab_24 = tnc_pc_2024 %>%
+  filter(known == T, nobi == 0) %>%
+  group_by(Species, Habitat) %>%
+  count() %>%
+  spread(Habitat, n)
+write.csv(sp_by_hab_24, "sp_by_hab_24.csv")
+
+sp_counts_by_hab_24 = colSums(sp_by_hab_24 != 0, na.rm = T)
+write.csv(as.data.frame(sp_counts_by_hab_24), "sp_counts_by_hab_24.csv")
+
+sp_by_hab_season_24 = tnc_pc_2024 %>%
+  filter(known == T, nobi == 0) %>%
+  group_by(Species, Habitat, Season) %>%
+  # distinct(Species) %>%
+  count() %>%
+  group_by(Habitat, Season) %>%
+  count() %>%
+  spread(Habitat, n)
+write.csv(sp_by_hab_season_24, "sp_by_hab_season_24.csv")
+
+sp_by_hab_season_wo88_24 = tnc_pc_2024 %>%
+  filter(known == T, nobi == 0, point_vs_88 == 1) %>%
+  group_by(Species, Habitat, Season) %>%
+  # distinct(Species) %>%
+  count() %>%
+  group_by(Habitat, Season) %>%
+  count() %>%
+  spread(Habitat, n)
+write.csv(sp_by_hab_season_wo88_24, "sp_by_hab_season_wo88_24.csv")
+
+caliente_observer_24 = tnc_pc_2024 %>%
+  select("Date", "Location_Code", "Observer") %>%
+  unique() %>%
+  left_join(caliente_location_codes, by = c("Location_Code" = "site_code")) %>%
+  left_join(surveyor, by = c("Observer" = "initials")) %>%
+  select(Date = Date, Site = site_name, Surveyor = name)
+write.csv(caliente_observer_24, "caliente_observer_24.csv")
+
+# Done already and saved
+# bird_sp = read.csv("birds_202210041059.csv")
+# bird_sp = bird_sp %>%
+#   select(spec, commonname, sciname)
+
+sp_list_points_24 = tnc_pc_2024 %>%
+  filter(known == T, nobi == 0, point_vs_88 == 1) %>%
+  select(Species, Season)%>%
+  distinct() %>%
+  arrange(Season, Species) %>%
+  left_join(bird_sp, by = c("Species" = "spec"))
+unique(sp_list_points_24$Season)
+
+sp_list_points_24_by_season = sp_list_points_24 %>%
+  mutate(count = 1, nobi = 0) %>%
+  pivot_wider(names_from = Season, values_from = count)
+# generate totals by season if time permits
+write.csv(sp_list_points_24_by_season, "sp_list_points_24_by_season.csv")
+colSums(sp_list_points_24_by_season[,5:6], na.rm = T)
+
+# Spring only
+sp_list_points_24_spring = sp_list_points_24 %>%
+  filter(Season == "Spring") %>%
+  select(Species, commonname, sciname)
+write.csv(sp_list_points_24_spring, "sp_list_points_24_spring.csv")
+
+sp_list_88_24 = tnc_pc_2024 %>%
+  filter(known == T, nobi == 0, point_vs_88 == 2) %>%
+  select(Species, Season)%>%
+  distinct() %>%
+  arrange(Season, Species) %>%
+  left_join(bird_sp, by = c("Species" = "spec"))
+
+sp_list_88_24_by_season = sp_list_88_24 %>%
+  mutate(count = 1) %>%
+  pivot_wider(names_from = Season, values_from = count)
+write.csv(sp_list_88_24_by_season, "sp_list_88_24_by_season.csv")
+colSums(sp_list_88_24_by_season[,4:5], na.rm = T)
+
+# Anti join to find unique species in 88s
+sp_list_88_24_unique = sp_list_88_24 %>%
+  anti_join(sp_list_points_24, join_by("Species", "Season")) %>%
+  mutate(count = 1) %>%
+  pivot_wider(names_from = Season, values_from = count)
+write.csv(sp_list_88_24_unique, "sp_list_88_24_unique.csv")
+colSums(sp_list_88_24_unique[,4:5], na.rm = T)
+
+# spring only
+sp_list_88_24_unique_spring = sp_list_88_24_unique %>%
+  filter(Spring == 1) %>%
+  select(Species, commonname, sciname)
+write.csv(sp_list_88_24_unique_spring, "sp_list_88_24_unique_spring.csv")
+
+
+```
+
+### 2021 - 2024
+
+```{r data2124}
+library(dplyr)
+library(tidyverse)
+
+# Read in Point count data
+TNC_Point_Count_Data_2021_2024 = read_excel(
+  file.path("C:",
+            "Users",
+            "PatrickLorch",
+            "SSRS",
+            "Southern Sierra Research Station - Documents",
+            "Projects",
+            "TNC Randall Preserve Projects",
+            "Data",
+            "Data for Analysis",
+            "2021-2024 DATA.xlsx"),
+        sheet = "2021-2024", 
+        col_types = c("numeric",
+                      "text", "text", "text", "date", "numeric",
+                      "text", "numeric", "numeric", "numeric",
+                      "numeric", "numeric", "numeric",
+                      "numeric", "numeric", "text", "text",
+                      "text", "text", "text", "text", "text",
+                      "text", "text", "text", "numeric", "numeric",
+                      "text", "text", "numeric"))
+View(TNC_Point_Count_Data_2021_2024)
+
+names(TNC_Point_Count_Data_2021_2024)
+
+# shorter name
+tnc_pc_21_24 = TNC_Point_Count_Data_2021_2024
+
+# Sanity check
+table(tnc_pc_21_24$Species, tnc_pc_21_24$Location_Code)
+
+# Set dummy variable for No birds at a point (NOBI)
+tnc_pc_21_24 = tnc_pc_21_24 %>%
+  mutate(nobi = ifelse(Species == "NOBI", 1, 0))
+
+# Mark unknowns
+## Change older Unknown Empidonax to new code
+which(tnc_pc_21_24$Species == "UEFL")
+which(tnc_pc_21_24$Species == "UNEM")
+tnc_pc_21_24 = tnc_pc_21_24 %>%
+  mutate(Species = ifelse(Species == "UEFL", "UNEM", Species))
+
+tnc_pc_21_24 = tnc_pc_21_24 %>%
+  mutate(known = substr(Species,1,2) != "UN")
+
+# Habitat type variable was added manually?
+table(tnc_pc_21_24$Habitat, tnc_pc_21_24$Location_Code)
+
+# Checking that 88 is not in Minute field
+which(tnc_pc_21_24$Minute == "88")
+
+tnc_pc_21_24 = tnc_pc_21_24 %>%
+  mutate(Season = case_when(Visit == "3" ~ "Summer",
+                            Visit == 1 | Visit == 2 ~ "Spring",
+                            TRUE ~ "Fall"),
+         point_vs_88 = case_when(Point_Name == "88" ~ 2,
+                                 TRUE ~ 1)
+         )
+table(tnc_pc_21_24$Season, tnc_pc_21_24$Visit)
+
+# Replace blank Number with 1
+which(is.na(tnc_pc_21_24$Number))
+tnc_pc_21_24 = tnc_pc_21_24 %>%
+  mutate(Number = ifelse(is.na(Number), 1, Number))
+
+# To skip the above steps, we can import this file.
+write.csv(tnc_pc_21_24, "tnc_pc_21_24.csv")           
+
+
+# summaries 
+sp_by_hab_21_24 = tnc_pc_21_24 %>%
+  filter(known == T, nobi == 0) %>%
+  group_by(Species, Habitat) %>%
+  count() %>%
+  spread(Habitat, n)
+write.csv(sp_by_hab_21_24, "sp_by_hab_21_24.csv")
+
+sp_counts_by_hab_21_24 = colSums(sp_by_hab_21_24 != 0, na.rm = T)
+write.csv(as.data.frame(sp_counts_by_hab_21_24), "sp_counts_by_hab_21_24.csv")
+
+sp_by_hab_season_21_24 = tnc_pc_21_24 %>%
+  filter(known == T, nobi == 0) %>%
+  group_by(Species, Habitat, Season) %>%
+  # distinct(Species) %>%
+  count() %>%
+  group_by(Habitat, Season) %>%
+  count() %>%
+  spread(Habitat, n)
+write.csv(sp_by_hab_season_21_24, "sp_by_hab_season_21_24.csv")
+
+sp_by_hab_season_wo88_21_24 = tnc_pc_21_24 %>%
+  filter(known == T, nobi == 0, point_vs_88 == 1) %>%
+  group_by(Species, Habitat, Season) %>%
+  # distinct(Species) %>%
+  count() %>%
+  group_by(Habitat, Season) %>%
+  count() %>%
+  spread(Habitat, n)
+write.csv(sp_by_hab_season_wo88_21_24, "sp_by_hab_season_wo88_21_24.csv")
+
+caliente_observer_21_24 = tnc_pc_21_24 %>%
+  select("Date", "Location_Code", "Observer") %>%
+  unique() %>%
+  left_join(caliente_location_codes, by = c("Location_Code" = "site_code")) %>%
+  left_join(surveyor, by = c("Observer" = "initials")) %>%
+  select(Date = Date, Site = site_name, Surveyor = name)
+write.csv(caliente_observer_21_24, "caliente_observer_21_24.csv")
+
+# Done already and saved
+# bird_sp = read.csv("birds_202210041059.csv")
+# bird_sp = bird_sp %>%
+#   select(spec, commonname, sciname)
+
+sp_list_points_21_24 = tnc_pc_21_24 %>%
+  filter(known == T, nobi == 0, point_vs_88 == 1) %>%
+  select(Species, Season)%>%
+  distinct() %>%
+  arrange(Season, Species) %>%
+  left_join(bird_sp, by = c("Species" = "spec"))
+unique(sp_list_points_21_24$Season)
+
+sp_list_points_21_24_by_season = sp_list_points_21_24 %>%
+  mutate(count = 1, nobi = 0) %>%
+  pivot_wider(names_from = Season, values_from = count)
+# generate totals by season if time permits
+write.csv(sp_list_points_21_24_by_season, "sp_list_points_21_24_by_season.csv")
+colSums(sp_list_points_21_24_by_season[,5:6], na.rm = T)
+
+# Spring only
+sp_list_points_21_24_spring = sp_list_points_21_24 %>%
+  filter(Season == "Spring") %>%
+  select(Species, commonname, sciname)
+write.csv(sp_list_points_21_24_spring, "sp_list_points_21_24_spring.csv")
+
+sp_list_88_21_24 = tnc_pc_21_24 %>%
+  filter(known == T, nobi == 0, point_vs_88 == 2) %>%
+  select(Species, Season)%>%
+  distinct() %>%
+  arrange(Season, Species) %>%
+  left_join(bird_sp, by = c("Species" = "spec"))
+
+sp_list_88_21_24_by_season = sp_list_88_21_24 %>%
+  mutate(count = 1) %>%
+  pivot_wider(names_from = Season, values_from = count)
+write.csv(sp_list_88_21_24_by_season, "sp_list_88_21_24_by_season.csv")
+colSums(sp_list_88_21_24_by_season[,4:5], na.rm = T)
+
+# Anti join to find unique species in 88s
+sp_list_88_21_24_unique = sp_list_88_21_24 %>%
+  anti_join(sp_list_points_21_24, join_by("Species", "Season")) %>%
+  mutate(count = 1) %>%
+  pivot_wider(names_from = Season, values_from = count)
+write.csv(sp_list_88_21_24_unique, "sp_list_88_21_24_unique.csv")
+colSums(sp_list_88_21_24_unique[,4:5], na.rm = T)
+
+# spring only
+sp_list_88_21_24_unique_spring = sp_list_88_21_24_unique %>%
+  filter(Spring == 1) %>%
+  select(Species, commonname, sciname)
+write.csv(sp_list_88_21_24_unique_spring, "sp_list_88_21_24_unique_spring.csv")
 
 ```
 
