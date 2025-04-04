@@ -24,7 +24,7 @@ knitr::opts_chunk$set(echo = TRUE)
 To follow RMH Handbook, starting on pg 54, we download an MGRS grd from https://mgrs-data.org/ (.gdb version) or
 https://earth-info.nga.mil/index.php?dir=coordsys&action=mgrs-1km-polyline-dloads (.shp version)
 
-UTM 11S covers our part of CA.
+UTM 11N (11S?) covers our part of CA.
 
 That is stored in SharePoint at "~Southern Sierra Research Station - Documents\Projects\TNC Randall Preserve Projects\Maps & GIS\mgrs_11s_100m" and 
 ""~Southern Sierra Research Station - Documents\Projects\TNC Randall Preserve Projects\Maps & GIS\MGRS_1km_11S_unprojected"
@@ -117,13 +117,16 @@ Develop a grid to put a certain density of points within each 1 km MGRS cell and
 Cannot use meters with negative buffers in sf if use_s2 is True so using estimating fractional degrees. This number can be changed if you want to remove more boundary points based on plots.
 
 ```{r vectorgrid}
-neg_buffer_deg = (-0.001)
+library(sf)
+
+# neg_buffer_deg = (-0.001)
+neg_buffer_m = (-100)
 
 # Narrow down area grid is built for using st_intersection
 focal_poly = focal_polygons %>% filter(Name == focal_poly_name)
 MGRS_1km_11S_intersect = st_intersection(MGRS_1km_11S_subset, focal_poly)
 # Get list of MGRS blocks of interest
-MGRS_1km_11S_intersect_ids = unique(MGRS_1km_11S_intersect_4269$MGRS)
+MGRS_1km_11S_intersect_ids = unique(MGRS_1km_11S_intersect$MGRS)
 # Subset the MGRS grid
 MGRS_1km_11S_subset3 = MGRS_1km_11S_subset %>%
   filter(MGRS %in% MGRS_1km_11S_intersect_ids)
@@ -132,53 +135,123 @@ plot(MGRS_1km_11S_intersect["MGRS"], add =T)
 plot(st_as_sfc(st_bbox(MGRS_1km_11S_subset3)), axes = T)
 plot(MGRS_1km_11S_subset3["MGRS"], axes = T, add = T)
 
-MGRS_1km_11S_subset3_4269 = st_transform(MGRS_1km_11S_subset3, crs = 4269)
+MGRS_1km_11S_subset3_6340 = st_transform(MGRS_1km_11S_subset3, crs = 6340)
 
 # Start here to redo debugging plot
 
-plot(st_as_sfc(st_bbox(MGRS_1km_11S_subset3_4269)), axes = T)
-plot(MGRS_1km_11S_subset3_4269["MGRS"], add = T)
+plot(st_as_sfc(st_bbox(MGRS_1km_11S_subset3_6340)), axes = T)
+plot(MGRS_1km_11S_subset3_6340["MGRS"], add = T)
 # Find width and length of MGRS grid cells
 MGRS_height = 
-  diff(as.numeric(range(substr(MGRS_1km_11S_subset3_4269$MGRS, 8, 9)))) + 1
+  diff(as.numeric(range(substr(MGRS_1km_11S_subset3_6340$MGRS, 8, 9)))) + 1
 MGRS_width = 
-  diff(as.numeric(range(substr(MGRS_1km_11S_subset3_4269$MGRS, 6, 7)))) + 1
+  diff(as.numeric(range(substr(MGRS_1km_11S_subset3_6340$MGRS, 6, 7)))) + 1
 
 MGRS_1km_11S_subset3_grid = 
-  st_make_grid(MGRS_1km_11S_subset3_4269, 
+  st_make_grid(MGRS_1km_11S_subset3_6340, 
                # cellsize = ncells *c(MGRS_height, MGRS_width),
                n = ncells *c(MGRS_height, MGRS_width),
                what = "centers")
 plot(MGRS_1km_11S_subset3_grid, add = T)
 
-# Remove points outside of focal poly and within 100m inside boundary
-focal_poly_4269 = st_transform(focal_poly, 4269)
-plot(focal_poly_4269, add = T, col = NA, lwd = 2)
+# Remove points outside of focal poly and within ~100m inside boundary
+focal_poly_6340 = st_transform(focal_poly, 6340)
+plot(focal_poly_6340, add = T, col = NA, lwd = 2)
 MGRS_1km_11S_subset4_grid = 
   st_intersection(x = MGRS_1km_11S_subset3_grid,
-                  y = focal_poly_4269)
+                  y = focal_poly_6340)
 
 plot(MGRS_1km_11S_subset4_grid, pch = 19, add = T)
 MGRS_1km_11S_subset4_grid = 
   st_intersection(x = MGRS_1km_11S_subset3_grid,
-                  y = st_buffer(focal_poly_4269, 
-                            dist = neg_buffer_deg))
-plot(st_buffer(focal_poly_4269,
-               dist = neg_buffer_deg), 
+                  y = st_buffer(focal_poly_6340, 
+                            dist = neg_buffer_m))
+plot(st_buffer(focal_poly_6340,
+               dist = neg_buffer_m), 
      col = NA,
      add = T)
 plot(MGRS_1km_11S_subset4_grid, pch = 19, col = "red", add = T)
 
+# Need Leaflet map to find and eliminate trees withing 50m
+center = st_coordinates(st_centroid(summarize(MGRS_1km_11S_subset3)))
+zoom = 13
+# starting_points = MGRS_1km_11S_subset4_grid
+starting_points = st_transform(MGRS_1km_11S_subset4_grid, 4326)
+
+m2 = leaflet() %>%
+  addTiles(group = "OSM (default)") %>%
+  addProviderTiles('Esri.WorldImagery', 
+                   group = "Esri World Imagery") %>%
+  setView(center[1], center[2], zoom) %>%
+  addPolygons(data = MGRS_1km_11S_subset3,
+              fill = F,
+              color = "black", 
+              opacity = 0.8,
+              label = ~MGRS,
+              group = "MGRS") %>%
+  addPolygons(data = focal_poly,
+              fill = F,
+              color = "red", 
+              opacity = 0.8,
+              label = ~Name,
+              group = "Ranch") %>%
+  addCircles(data = starting_points,
+                   radius = 50,
+                   fill = F,
+                   label = 1:length(starting_points),
+                   group = "Points") %>%
+  addLayersControl(
+    baseGroups = c("Esri World Imagery", "OSM (default)"),
+    overlayGroups = c("MGRS", "Ranch", "Points"),
+    position = "bottomright",
+    options = layersControlOptions(collapsed = TRUE)) %>%
+  addScaleBar(position = "bottomleft")
+
+
+m2
+saveWidget(m, file = "MGRSgridcelleliminator.html")
+# Ordered list of points within 50 m of trees
+tree_points = c(166, 167, 175)
+ending_points = st_transform(starting_points[-tree_points], 6340)
+plot(ending_points, pch = 19, col = "green", add = T)
+sampling_points = ending_points
 ```
 
 ### Grts drop
 
-
+The code from p. 56 of the RMH Handbook is out of date and useless.
 
 ```{r grts}
 library(spsurvey)
 library(sf)
 
+# Set values for sample density here
+main_points = 15
+over_points = 10
+point_ID_prefix = focal_poly_name
 
+grtsRanchX<-list(None=list(panel=c(Panel1 = main_points),
+                           seltype = "Equal", 
+                           over = over_points))
+
+focal_grts = grts(grtsRanchX, 
+     DesignID = point_ID_prefix, # Could be/add MGRS ID
+     SiteBegin = 1, 
+     # type.frame = "finite", 
+     src.frame = "shapefile", # I think we will want to change this if we stay in R
+     in.shape = paste0(point_ID_prefix, "_POINT_GRID"),
+     xcoord = "xcoord", 
+     ycoord = "ycoord",
+     out.shape = paste0(point_ID_prefix, "_GRTS")
+)
+
+focal_grts = grts(st_as_sf(sampling_points), 
+                  n_base = 15,
+                  mindis = 250,
+                  n_over = 10,
+                  DesignID = point_ID_prefix, # Could be/add MGRS ID
+                  SiteBegin = 1)
+plot(focal_grts$sites_base$x, pch = 19, col = "blue", add =T)
+plot(focal_grts$sites_over$x, pch = 19, col = "orange", add =T)
 ```
 
