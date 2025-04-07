@@ -42,7 +42,7 @@ The first Leaflet map is just for figuring out what MGRS IDs you need to include
 The plots are generally just to help check you are getting what you expect.
 
 
-```{r mgrs}
+```{r mgrspolys}
 library(dplyr)
 library(leaflet)
 library(leaflet.extras2)
@@ -65,21 +65,29 @@ MGRS_1km_11S_subset =
 center = st_coordinates(st_centroid(summarize(MGRS_1km_11S_subset)))
 zoom = 10
 
-# Polygons of interest for narrowing down GRTS point sample frame
-focal_polygons = 
+```
+
+#### Sampling larger areas
+
+If a single polygon you are sampling is large enough to contain a decent GRTS sample, this method will work.
+
+```{r mgrsbigpolys}
+# For sampling the ranches
+
+ranch_polygons =
   st_read(dsn = file.path("../..",
                           "Maps & GIS",
                           "2023 (complete GIS files)",
-                          "Randall Pasture Boundaries 2023",
-                          "Randall Pasture Boundaries 2023"),
-          layer = "Randall_Pastures_2023")
+                          "RanchPolygons"),
+          layer = "Polygons")
+ranch_polygons =
+  st_zm(ranch_polygons, drop = T, what = "ZM")
 # get in same coordinate system
-focal_polygons = st_transform(focal_polygons, st_crs(MGRS_1km_11S_subset))
-focal_poly_name = "B&C West"
+ranch_polygons = st_transform(ranch_polygons, st_crs(MGRS_1km_11S_subset))
 
 pal <- colorFactor(
   palette = "magma",
-  domain = focal_polygons$Name,
+  domain = ranch_polygons$Name,
   na.color = "#737373")
 
 m = leaflet() %>%
@@ -90,25 +98,117 @@ m = leaflet() %>%
   addPolygons(data = MGRS_1km_11S_subset,
               fill = F,
               color="black", 
-              opacity=10.8,
+              opacity = 0.8,
               label = ~MGRS,
               group = "MGRS") %>%
-  addPolygons(data = focal_polygons,
+  addPolygons(data = ranch_polygons,
               fill = F,
-              color= ~pal(Name), 
-              opacity=10.8,
+              color= ~pal(Name),
               label = ~Name,
+              opacity = 0.8,
               group = "Ranch") %>%
   addLayersControl(
     baseGroups = c("Esri World Imagery", "OSM (default)"),
     overlayGroups = c("MGRS", "Ranch"),
     position = "bottomright",
-    options = layersControlOptions(collapsed = TRUE))
-
+    options = layersControlOptions(collapsed = TRUE)
+    )
 
 m
-saveWidget(m, file = "MGRSgridcellpicker.html")
+saveWidget(m, file = "MGRSgridcellpickerBig.html")
 ```
+
+#### Sampling smaller areas
+
+If a single polygon you are sampling is NOT large enough to contain a decent GRTS sample, this method will work better. We use this for adding GRTS points "in and around" the spot mapping plots.
+
+```{r mgrssmallpolys}
+subset_polys = c("Tollhouse Ranch")
+focal_ranch_polygon = filter(ranch_polygons,
+                             Name %in% subset_polys)
+focal_ranch_polygon_6340 = st_transform(focal_ranch_polygon, 6340)
+center = st_coordinates(st_centroid(summarize(focal_ranch_polygon)))
+zoom = 12
+
+# Polygons of interest for narrowing down GRTS point sample frame
+##  First get spotmapping plots into one sfdf
+focal_poly_name1 = "Spotmapping2025"
+focal_polygons1 =
+  st_read(dsn = file.path("../..",
+                          "Maps & GIS",
+                          "SpotMappingShapefileExport",
+                          "Spot_mapping_plots_added_in_2025"),
+          layer = "Spot_mapping_plots_added_in_2025") 
+# Need to remove Z dimension which this shapefile was saved with
+focal_polygons1 = st_zm(focal_polygons1, drop = T, what = "ZM")
+# get in same coordinate system
+focal_polygons1 = st_transform(focal_polygons1, 
+                              st_crs(MGRS_1km_11S_subset))
+
+focal_poly_name2 = "SpotmappingPre2025"
+focal_polygons2 = 
+  st_read(dsn = file.path("../..",
+                          "Maps & GIS",
+                          "SpotMappingShapefileExport",
+                          "TNC_RP_2024_WFL1_spotmappingPre2025"),
+          layer = "Spot_Mapping_Plots")
+# get in same coordinate system
+focal_polygons2 = st_transform(focal_polygons2, 
+                              st_crs(MGRS_1km_11S_subset))
+focal_polygons = bind_rows(focal_polygons1, focal_polygons2)
+
+# Rename duplicate created by casting multipolygon to polygon
+focal_polygons$PlotName[which(focal_polygons$PlotName == "BR-A")[2]] =
+  "BR-A2"
+focal_polygons = focal_polygons %>%
+  mutate(YearAdded = c(rep(2025, 2), 
+                       rep(2024, nrow(focal_polygons2)))) %>%
+  filter(!(PlotName %in% c("Exclusion", "Exclusion2")))
+## Subset this by ranch(s)
+focal_polygons = 
+  st_intersection(focal_polygons,
+               focal_ranch_polygon)
+
+
+pal <- colorFactor(
+  palette = "magma",
+  domain = focal_polygons$PlotName,
+  na.color = "#737373")
+
+m = leaflet() %>%
+  addTiles(group = "OSM (default)") %>%
+  addProviderTiles('Esri.WorldImagery', 
+                   group = "Esri World Imagery") %>%
+  setView(center[1], center[2], zoom) %>%
+  addPolygons(data = MGRS_1km_11S_subset,
+              fill = F,
+              color="black", 
+              opacity = 0.8,
+              label = ~MGRS,
+              group = "MGRS") %>%
+  addPolygons(data = focal_polygons,
+              fill = F,
+              color = ~pal(PlotName),
+              label = ~PlotName,
+              opacity = 0.8,
+              group = "Spotplot") %>%
+  addPolygons(data = focal_ranch_polygon,
+              fill = F,
+              color = "purple",
+              opacity = 0.75,
+              group = "Ranch") %>%
+  addLayersControl(
+    baseGroups = c("Esri World Imagery", "OSM (default)"),
+    overlayGroups = c("MGRS", "Spotplot", "Ranch"),
+    position = "bottomright",
+    options = layersControlOptions(collapsed = TRUE)
+    )
+
+m
+saveWidget(m, file = "MGRSgridcellpickerSmall.html")
+
+```
+
 
 ### Vector grid 
 
@@ -116,21 +216,27 @@ Develop a grid to put a certain density of points within each 1 km MGRS cell and
 
 Cannot use meters with negative buffers in sf if use_s2 is True so using estimating fractional degrees. This number can be changed if you want to remove more boundary points based on plots.
 
+We probably need to increase small_poly_buffer_m until we have around 40 potential GRTS points per ranch.
+
 ```{r vectorgrid}
 library(sf)
 
+# small_poly_buffer_m = 0
+small_poly_buffer_m = 700
 # neg_buffer_deg = (-0.001)
 neg_buffer_m = (-100)
 
+focal_poly = focal_polygons
 # Narrow down area grid is built for using st_intersection
-focal_poly = focal_polygons %>% filter(Name == focal_poly_name)
-MGRS_1km_11S_intersect = st_intersection(MGRS_1km_11S_subset, focal_poly)
+# focal_poly = focal_polygons %>% filter(Name == focal_poly_name)
+MGRS_1km_11S_intersect = st_intersection(MGRS_1km_11S_subset, st_buffer(focal_poly, small_poly_buffer_m))
 # Get list of MGRS blocks of interest
 MGRS_1km_11S_intersect_ids = unique(MGRS_1km_11S_intersect$MGRS)
 # Subset the MGRS grid
 MGRS_1km_11S_subset3 = MGRS_1km_11S_subset %>%
   filter(MGRS %in% MGRS_1km_11S_intersect_ids)
-plot(MGRS_1km_11S_intersect["MGRS"], add =T)
+plot(MGRS_1km_11S_intersect["MGRS"])
+# plot(MGRS_1km_11S_intersect["MGRS"])
 
 plot(st_as_sfc(st_bbox(MGRS_1km_11S_subset3)), axes = T)
 plot(MGRS_1km_11S_subset3["MGRS"], axes = T, add = T)
@@ -154,29 +260,38 @@ MGRS_1km_11S_subset3_grid =
                what = "centers")
 plot(MGRS_1km_11S_subset3_grid, add = T)
 
-# Remove points outside of focal poly and within ~100m inside boundary
-focal_poly_6340 = st_transform(focal_poly, 6340)
+# Remove points outside of buffered focal poly and within ~100m inside ranch boundary
+focal_poly_6340 = focal_poly %>%
+  st_buffer(small_poly_buffer_m) %>%
+  st_transform(6340)
 plot(focal_poly_6340, add = T, col = NA, lwd = 2)
 MGRS_1km_11S_subset4_grid = 
   st_intersection(x = MGRS_1km_11S_subset3_grid,
                   y = focal_poly_6340)
 
 plot(MGRS_1km_11S_subset4_grid, pch = 19, add = T)
-MGRS_1km_11S_subset4_grid = 
-  st_intersection(x = MGRS_1km_11S_subset3_grid,
-                  y = st_buffer(focal_poly_6340, 
+# MGRS_1km_11S_subset4_grid = 
+#   st_intersection(x = MGRS_1km_11S_subset3_grid,
+#                   y = focal_poly_6340)
+# Get points within < 100m of ranch boundary
+MGRS_1km_11S_subset5_grid =
+  st_intersection(x = MGRS_1km_11S_subset4_grid,
+                  y = st_buffer(focal_ranch_polygon_6340,
                             dist = neg_buffer_m))
-plot(st_buffer(focal_poly_6340,
+plot(st_buffer(focal_ranch_polygon_6340,
                dist = neg_buffer_m), 
      col = NA,
      add = T)
-plot(MGRS_1km_11S_subset4_grid, pch = 19, col = "red", add = T)
+
+plot(MGRS_1km_11S_subset5_grid, pch = 19, col = "red", add = T)
+# Check how many potential points
+length(MGRS_1km_11S_subset5_grid)
 
 # Need Leaflet map to find and eliminate trees withing 50m
 center = st_coordinates(st_centroid(summarize(MGRS_1km_11S_subset3)))
-zoom = 13
+zoom = 12
 # starting_points = MGRS_1km_11S_subset4_grid
-starting_points = st_transform(MGRS_1km_11S_subset4_grid, 4326)
+starting_points = st_transform(MGRS_1km_11S_subset5_grid, 4326)
 
 m2 = leaflet() %>%
   addTiles(group = "OSM (default)") %>%
@@ -189,9 +304,18 @@ m2 = leaflet() %>%
               opacity = 0.8,
               label = ~MGRS,
               group = "MGRS") %>%
-  addPolygons(data = focal_poly,
+  addPolygons(data = focal_polygons,
               fill = F,
-              color = "red", 
+              color= ~pal(PlotName), 
+              label = ~PlotName,
+              opacity = 0.8,
+              group = "Spotplot") %>%
+              # color= ~pal(Name), 
+              # label = ~Name,
+              # group = "Ranch") %>%
+  addPolygons(data = focal_ranch_polygon,
+              fill = F,
+              color = "red",
               opacity = 0.8,
               label = ~Name,
               group = "Ranch") %>%
@@ -202,19 +326,27 @@ m2 = leaflet() %>%
                    group = "Points") %>%
   addLayersControl(
     baseGroups = c("Esri World Imagery", "OSM (default)"),
-    overlayGroups = c("MGRS", "Ranch", "Points"),
+    overlayGroups = c("MGRS", "Spotplot"),
+    # overlayGroups = c("MGRS", "Ranch"),
     position = "bottomright",
-    options = layersControlOptions(collapsed = TRUE)) %>%
+    options = layersControlOptions(collapsed = TRUE)
+  # addLayersControl(
+  #   baseGroups = c("Esri World Imagery", "OSM (default)"),
+  #   overlayGroups = c("MGRS", "Ranch", "Points"),
+  #   position = "bottomright",
+  #   options = layersControlOptions(collapsed = TRUE)
+    ) %>%
   addScaleBar(position = "bottomleft")
 
 
 m2
 saveWidget(m, file = "MGRSgridcelleliminator.html")
 # Ordered list of points within 50 m of trees
-tree_points = c(166, 167, 175)
+tree_points = c(5,9,11,13:16,18,19, 28, 36, 40,44)
 ending_points = st_transform(starting_points[-tree_points], 6340)
 plot(ending_points, pch = 19, col = "green", add = T)
 sampling_points = ending_points
+
 ```
 
 ### Grts drop
@@ -228,22 +360,11 @@ library(sf)
 # Set values for sample density here
 main_points = 15
 over_points = 10
-point_ID_prefix = focal_poly_name
+point_ID_prefix = subset_poly
 
-grtsRanchX<-list(None=list(panel=c(Panel1 = main_points),
+grtsRanchX = list(None=list(panel=c(Panel1 = main_points),
                            seltype = "Equal", 
                            over = over_points))
-
-focal_grts = grts(grtsRanchX, 
-     DesignID = point_ID_prefix, # Could be/add MGRS ID
-     SiteBegin = 1, 
-     # type.frame = "finite", 
-     src.frame = "shapefile", # I think we will want to change this if we stay in R
-     in.shape = paste0(point_ID_prefix, "_POINT_GRID"),
-     xcoord = "xcoord", 
-     ycoord = "ycoord",
-     out.shape = paste0(point_ID_prefix, "_GRTS")
-)
 
 focal_grts = grts(st_as_sf(sampling_points), 
                   n_base = 15,
@@ -253,5 +374,6 @@ focal_grts = grts(st_as_sf(sampling_points),
                   SiteBegin = 1)
 plot(focal_grts$sites_base$x, pch = 19, col = "blue", add =T)
 plot(focal_grts$sites_over$x, pch = 19, col = "orange", add =T)
+
 ```
 
