@@ -9,14 +9,6 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## Boundary import
-
-
-
-```{r bounds}
-
-```
-
 ## GRTS
 
 ### MGRS grid cell selection
@@ -64,6 +56,24 @@ MGRS_1km_11S_subset =
   filter(kmSQ_ID %in% c("LV", "LU"))
 center = st_coordinates(st_centroid(summarize(MGRS_1km_11S_subset)))
 zoom = 10
+
+```
+
+### Survey points
+
+Get points we want to include in GRTS as legacy points.
+
+```{r suveypoints}
+survey_points_2023 =
+  st_read(dsn = file.path("../..",
+                          "Maps & GIS",
+                          "SpotMappingShapefileExport",
+                          "2023SurveyPoints2"),
+          layer = "2023_Survey_Points")
+survey_points_2023 = st_zm(survey_points_2023, drop = T)
+survey_points_2023_6340 = st_transform(survey_points_2023, 6340)
+Legacy_survey_points_2023_6340 = survey_points_2023_6340 %>%
+  filter(Name %in% c("THG-09", "THG-29"))
 
 ```
 
@@ -123,12 +133,17 @@ saveWidget(m, file = "MGRSgridcellpickerBig.html")
 If a single polygon you are sampling is NOT large enough to contain a decent GRTS sample, this method will work better. We use this for adding GRTS points "in and around" the spot mapping plots.
 
 ```{r mgrssmallpolys}
-subset_polys = c("Tollhouse Ranch")
+subset_polys = c("B & C Land Ranch")
+# subset_polys = c("Loop Ranch")
+# subset_polys = c("Beard Ranch")
+# subset_polys = c("Tollhouse Ranch")
 focal_ranch_polygon = filter(ranch_polygons,
                              Name %in% subset_polys)
 focal_ranch_polygon_6340 = st_transform(focal_ranch_polygon, 6340)
 center = st_coordinates(st_centroid(summarize(focal_ranch_polygon)))
 zoom = 12
+
+# Only need to do this once. Probably move out of here.
 
 # Polygons of interest for narrowing down GRTS point sample frame
 ##  First get spotmapping plots into one sfdf
@@ -164,15 +179,16 @@ focal_polygons = focal_polygons %>%
   mutate(YearAdded = c(rep(2025, 2), 
                        rep(2024, nrow(focal_polygons2)))) %>%
   filter(!(PlotName %in% c("Exclusion", "Exclusion2")))
+
 ## Subset this by ranch(s)
-focal_polygons = 
+focal_polygons_sub = 
   st_intersection(focal_polygons,
                focal_ranch_polygon)
 
 
 pal <- colorFactor(
   palette = "magma",
-  domain = focal_polygons$PlotName,
+  domain = focal_polygons_sub$PlotName,
   na.color = "#737373")
 
 m = leaflet() %>%
@@ -186,7 +202,7 @@ m = leaflet() %>%
               opacity = 0.8,
               label = ~MGRS,
               group = "MGRS") %>%
-  addPolygons(data = focal_polygons,
+  addPolygons(data = focal_polygons_sub,
               fill = F,
               color = ~pal(PlotName),
               label = ~PlotName,
@@ -222,13 +238,14 @@ We probably need to increase small_poly_buffer_m until we have around 40 potenti
 library(sf)
 
 # small_poly_buffer_m = 0
+# For Tollhouse 700 worked, for Beard 900 worked
 small_poly_buffer_m = 700
 # neg_buffer_deg = (-0.001)
 neg_buffer_m = (-100)
 
-focal_poly = focal_polygons
+focal_poly = focal_polygons_sub
 # Narrow down area grid is built for using st_intersection
-# focal_poly = focal_polygons %>% filter(Name == focal_poly_name)
+# focal_poly = focal_polygons_sub %>% filter(Name == focal_poly_name)
 MGRS_1km_11S_intersect = st_intersection(MGRS_1km_11S_subset, st_buffer(focal_poly, small_poly_buffer_m))
 # Get list of MGRS blocks of interest
 MGRS_1km_11S_intersect_ids = unique(MGRS_1km_11S_intersect$MGRS)
@@ -256,7 +273,7 @@ MGRS_width =
 MGRS_1km_11S_subset3_grid = 
   st_make_grid(MGRS_1km_11S_subset3_6340, 
                # cellsize = ncells *c(MGRS_height, MGRS_width),
-               n = ncells *c(MGRS_height, MGRS_width),
+               n = ncells *c(MGRS_width, MGRS_height),
                what = "centers")
 plot(MGRS_1km_11S_subset3_grid, add = T)
 
@@ -267,7 +284,10 @@ focal_poly_6340 = focal_poly %>%
 plot(focal_poly_6340, add = T, col = NA, lwd = 2)
 MGRS_1km_11S_subset4_grid = 
   st_intersection(x = MGRS_1km_11S_subset3_grid,
-                  y = focal_poly_6340)
+                  y = st_union(focal_poly_6340))
+# May need to use this one if polys are non-overlapping
+  # st_intersection(x = MGRS_1km_11S_subset3_grid,
+  #                 y = focal_poly_6340)
 
 plot(MGRS_1km_11S_subset4_grid, pch = 19, add = T)
 # MGRS_1km_11S_subset4_grid = 
@@ -304,7 +324,7 @@ m2 = leaflet() %>%
               opacity = 0.8,
               label = ~MGRS,
               group = "MGRS") %>%
-  addPolygons(data = focal_polygons,
+  addPolygons(data = focal_polygons_sub,
               fill = F,
               color= ~pal(PlotName), 
               label = ~PlotName,
@@ -342,38 +362,173 @@ m2 = leaflet() %>%
 m2
 saveWidget(m, file = "MGRSgridcelleliminator.html")
 # Ordered list of points within 50 m of trees
-tree_points = c(5,9,11,13:16,18,19, 28, 36, 40,44)
+# For  I excluded roads and ravines as well as trees
+subset_polys = c("B & C Land Ranch")
+tree_points = c(8, 16, 59, 62, 68, 70, 72, 83:86,
+                100, 101, 107:109)
+# subset_polys = c("Loop Ranch")
+# tree_points = c(17, 22, 31, 32, 34:42, 44:52)
+# subset_polys = c("Beard Ranch")
+# tree_points = c(5, 11, 13, 14, 17, 20:22, 24:28, 31, 34:37, 39, 40, 42, 45:54)
+# subset_polys = c("Tollhouse Ranch")
+# tree_points = c(5, 10, 15, 21:23, 25, 28:30, 33, 34, 37, 38, 40:42, 45:46)
 ending_points = st_transform(starting_points[-tree_points], 6340)
 plot(ending_points, pch = 19, col = "green", add = T)
-sampling_points = ending_points
 
+sampling_points_BnC = ending_points
+# sampling_points_Loop = ending_points
+# sampling_points_Beard = ending_points
+# sampling_points_Tollhouse = ending_points
 ```
 
 ### Grts drop
 
 The code from p. 56 of the RMH Handbook is out of date and useless.
 
+Now includes legacy point input for the two spot mapping plots that overlapped previous point count transects.
+
 ```{r grts}
 library(spsurvey)
 library(sf)
 
 # Set values for sample density here
+# Beard: used 12 and 9 below instead of 15, 10
 main_points = 15
 over_points = 10
 point_ID_prefix = subset_poly
 
-grtsRanchX = list(None=list(panel=c(Panel1 = main_points),
-                           seltype = "Equal", 
-                           over = over_points))
+sampling_points = sampling_points_BnC 
+# sampling_points = sampling_points_Loop 
+# sampling_points = sampling_points_Beard 
+# sampling_points = sampling_points_Tollhouse
 
 focal_grts = grts(st_as_sf(sampling_points), 
-                  n_base = 15,
+                  n_base = main_points,
                   mindis = 250,
-                  n_over = 10,
+                  n_over = over_points,
                   DesignID = point_ID_prefix, # Could be/add MGRS ID
                   SiteBegin = 1)
-plot(focal_grts$sites_base$x, pch = 19, col = "blue", add =T)
-plot(focal_grts$sites_over$x, pch = 19, col = "orange", add =T)
+plot(focal_grts, pch = 19, add = T) # Blue = base, Orange = over
+# plot(focal_grts$sites_base$x, pch = 19, col = "blue", add =T)
+# plot(focal_grts$sites_over$x, pch = 19, col = "orange", add =T)
 
+focal_grts_legacy = grts(st_as_sf(sampling_points), 
+                  n_base = main_points,
+                  mindis = 250,
+                  n_over = over_points,
+                  legacy_sites = Legacy_survey_points_2023_6340,
+                  DesignID = point_ID_prefix, # Could be/add MGRS ID
+                  SiteBegin = 1)
+plot(focal_grts_legacy, pch = 19, add = T) # Blue = base, Orange = over
+
+grts_points_BnC = focal_grts
+# grts_points_Loop = focal_grts
+# grts_points_Beard = focal_grts
+# grts_points_Tollhouse = focal_grts
+# grts_points_Tollhouse_legacy = focal_grts_legacy
+```
+
+
+
+### Combine and Export to shapefile
+
+Combine each base and oversample into one sf object, then export.
+
+Needed to clean up site IDs which were often set wrong. Renaming scheme only works for 2 character site_num. Could split the string on the '-' to improve it.
+
+Also add a unique Point_ID for use as label in AGOL.
+
+```{r grtsout}
+library(dplyr)
+library(sf)
+
+grts_points_BnC_sf = 
+  rbind(grts_points_BnC$sites_base,
+            grts_points_BnC$sites_over) 
+grts_points_BnC_sf = 
+  grts_points_BnC_sf %>%
+  mutate(site_num = 
+           substr(siteID,
+                  nchar(siteID) - 1,
+                  nchar(siteID)),
+         siteID = paste("B & C Land Ranch", 
+                        site_num, 
+                        sep = "-"),
+         Point_id = paste0("BnC", 
+                           siteuse,
+                           site_num))
+
+grts_points_Loop_sf = 
+  rbind(grts_points_Loop$sites_base,
+            grts_points_Loop$sites_over)
+grts_points_Loop_sf = 
+  grts_points_Loop_sf %>%
+  mutate(site_num = 
+           substr(siteID,
+                  nchar(siteID) - 1,
+                  nchar(siteID)),
+         siteID = paste("Loop Ranch",
+                        site_num, 
+                        sep = "-"),
+         Point_id = paste0("Lp", 
+                           siteuse,
+                           site_num))
+
+grts_points_Beard_sf = 
+  rbind(grts_points_Beard$sites_base,
+            grts_points_Beard$sites_over)
+grts_points_Beard_sf = 
+  grts_points_Beard_sf %>%
+  mutate(site_num = 
+           substr(siteID,
+                  nchar(siteID) - 1,
+                  nchar(siteID)),
+         siteID = paste("Beard Ranch", 
+                        site_num, 
+                        sep = "-"),
+         Point_id = paste0("Brd", 
+                           siteuse,
+                           site_num))
+
+grts_points_Tollhouse_legacy_sf = 
+  rbind(grts_points_Tollhouse_legacy$sites_base,
+            grts_points_Tollhouse_legacy$sites_over)
+grts_points_Tollhouse_legacy_sf = 
+  grts_points_Tollhouse_legacy_sf %>%
+  mutate(site_num = 
+           substr(siteID,
+                  nchar(siteID) - 1,
+                  nchar(siteID)),
+         siteID = paste("Tollhouse Ranch w/ Legacy points", 
+                        site_num, 
+                        sep = "-"),
+         Point_id = paste0("TolL", 
+                           siteuse,
+                           site_num))
+
+grts_points_grassland_spotmapping_sf = 
+ rbind(grts_points_Beard_sf,
+       grts_points_BnC_sf,
+       grts_points_Loop_sf,
+       grts_points_Tollhouse_legacy_sf)
+plot(st_sf(grts_points_grassland_spotmapping_sf)[1])
+
+dir.create("grts_points")
+
+# shapefile output
+st_write(grts_points_grassland_spotmapping_sf, 
+         "grts_points/grts_points_grassland_spotmapping_sf.shp")
+
+# kml output
+grts_exprt_kml =
+  grts_points_grassland_spotmapping_sf %>%
+  st_transform(4326) %>%
+  select(DescriptionField = Point_id)
+  # select(NameField = Point_id)
+
+st_write(grts_points_grassland_spotmapping_sf, 
+         "grts_points/grts_points_grassland_spotmapping_Name.kml",
+         driver = "kml", 
+         delete_dsn = TRUE)
 ```
 
