@@ -1640,5 +1640,17 @@ sp_list_88_21_24_unique_spring = sp_list_88_21_24_unique %>%
   select(Species, commonname, sciname)
 write.csv(sp_list_88_21_24_unique_spring, "sp_list_88_21_24_unique_spring.csv")
 
+
+# What are species contributed by 2024 surveys not in previous list?
+sp_list_24_additional_season = sp_list_points_24 %>%
+  anti_join(sp_list_points_21_23, join_by("Species", "Season")) %>%
+  mutate(count = 1) %>%
+  pivot_wider(names_from = Season, values_from = count)
+write.csv(sp_list_24_additional_season, "sp_list_24_additional_season.csv")
+
+sp_list_24_additional_habitat = sp_by_hab_24 %>%
+  filter(Species %in%
+           sp_list_24_additional_season$Species)
+write.csv(sp_list_24_additional_habitat, "sp_list_24_additional_habitat.csv")
 ```
 
